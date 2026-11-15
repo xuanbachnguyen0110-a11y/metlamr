@@ -360,7 +360,409 @@
                 <i class="fa-solid fa-share-nodes"></i>
             </div>
             <h3 class="font-bold text-lg text-white mb-1">Chia sẻ phòng chơi Ma Sói</h3>
-            <p class="text-xs text-gray-400 mb-
+            <p class="text-xs text-gray-400 mb-4">Gửi liên kết này cho bạn bè để họ vào cùng phòng trên mạng.</p>
+            
+            <div class="bg-dark-900 border border-dark-700 p-3 rounded-xl mb-4">
+                <p class="text-xs text-gray-400 mb-1">Mã phòng của bạn:</p>
+                <p id="modal-room-code-val" class="text-2xl font-mono font-extrabold text-purple-400 tracking-widest">WOLF60</p>
+            </div>
+
+            <div class="bg-dark-900 border border-dark-700 p-3 rounded-xl flex items-center justify-between gap-2 mb-4">
+                <input type="text" id="share-link-input" readonly value="" class="bg-transparent text-xs text-gray-300 w-full outline-none font-mono">
+                <button onclick="copyShareLinkText()" class="bg-purple-600 hover:bg-purple-500 text-white text-xs px-3 py-2 rounded-lg font-semibold shrink-0 transition">Sao chép</button>
+            </div>
+
+            <button onclick="closeModal('shareRoomModal')" class="w-full bg-dark-700 hover:bg-dark-600 text-gray-300 py-2.5 rounded-xl text-sm font-semibold">Đóng</button>
+        </div>
+    </div>
+
+    <!-- Modal: Rules & Roles Guide with Abilities -->
+    <div id="rulesModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-dark-800 border border-dark-700 rounded-2xl max-w-3xl w-full p-6 shadow-2xl max-h-[85vh] overflow-y-auto">
+            <div class="flex items-center justify-between pb-4 border-b border-dark-700 sticky top-0 bg-dark-800 z-10">
+                <h3 class="font-bold text-lg text-white flex items-center gap-2"><i class="fa-solid fa-book-open text-purple-400"></i> Hướng dẫn Vai trò & Kỹ năng chi tiết</h3>
+                <button onclick="closeModal('rulesModal')" class="text-gray-400 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div class="py-4 space-y-4 text-sm text-gray-300" id="roles-guide-list">
+                <!-- Populated by JS -->
+            </div>
+            <div class="flex justify-end pt-2 sticky bottom-0 bg-dark-800 pb-2">
+                <button onclick="closeModal('rulesModal')" class="bg-purple-600 hover:bg-purple-500 text-white px-5 py-2 rounded-xl text-sm font-semibold">Đã hiểu</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="fixed bottom-6 right-6 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+    <!-- JavaScript Game Engine & Firebase Realtime Sync -->
+    <script>
+        // ================= FIREBASE CONFIGURATION (METVCL) =================
+        const firebaseConfig = {
+            apiKey: "AIzaSyCP92PglHyCrZ2arkC1WDXa3sJLzZhW8A",
+            authDomain: "metvcl.firebaseapp.com",
+            databaseURL: "https://metvcl-default-rtdb.firebaseio.com",
+            projectId: "metvcl",
+            storageBucket: "metvcl.firebasestorage.app",
+            messagingSenderId: "502433910683",
+            appId: "1:502433910683:web:6e39133f07b6ae602e1b3e",
+            measurementId: "G-D8257YF6LK"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        // --- Role Definitions with Detailed Abilities & Win Conditions ---
+        const ROLE_DEFINITIONS = {
+            werewolf: {
+                name: 'Ma Sói',
+                side: 'werewolf',
+                icon: 'fa-wolf-pack-battalion',
+                color: 'text-red-500',
+                bg: 'bg-red-950/40 border-red-800 glow-red',
+                desc: 'Mỗi đêm, bầy sói thức dậy cùng nhau chọn một người chơi để ăn thịt. Ban ngày giả làm dân làng để tránh bị nghi ngờ.',
+                win: 'Tiêu diệt toàn bộ dân làng hoặc số lượng sói bằng số lượng dân làng còn sống.'
+            },
+            seer: {
+                name: 'Tiên Tri',
+                side: 'village',
+                icon: 'fa-crystal-ball',
+                color: 'text-purple-400',
+                bg: 'bg-purple-950/40 border-purple-800 glow-purple',
+                desc: 'Mỗi đêm được Quản trò gọi dậy để soi danh tính thực sự (Sói hay Người) của một người chơi bất kỳ nhằm tìm ra kẻ gian.',
+                win: 'Giúp phe Dân làng loại bỏ toàn bộ Ma Sói.'
+            },
+            guard: {
+                name: 'Bảo Vệ',
+                side: 'village',
+                icon: 'fa-shield-halved',
+                color: 'text-blue-400',
+                bg: 'bg-blue-950/40 border-blue-800 glow-blue',
+                desc: 'Mỗi đêm chọn bảo vệ một người chơi khỏi bị sói cắn (có thể chọn bảo vệ chính mình, nhưng không được bảo vệ 1 người trong 2 đêm liên tiếp).',
+                win: 'Giúp phe Dân làng loại bỏ toàn bộ Ma Sói.'
+            },
+            witch: {
+                name: 'Phù Thủy',
+                side: 'village',
+                icon: 'fa-wand-magic-sparkles',
+                color: 'text-amber-400',
+                bg: 'bg-amber-950/40 border-amber-800',
+                desc: 'Sở hữu 2 bình phép trong suốt ván chơi: Bình cứu sinh (hồi sinh nạn nhân bị sói cắn trong đêm) và Bình độc (tiêu diệt bất kỳ ai vào ban đêm). Mỗi bình chỉ dùng được 1 lần.',
+                win: 'Giúp phe Dân làng loại bỏ toàn bộ Ma Sói.'
+            },
+            hunter: {
+                name: 'Thợ Săn',
+                side: 'village',
+                icon: 'fa-crosshairs',
+                color: 'text-emerald-400',
+                bg: 'bg-emerald-950/40 border-emerald-800',
+                desc: 'Khi Thợ Săn chết (bị sói cắn hoặc bị treo cổ), Thợ Săn có quyền bắn kéo theo một người chơi bất kỳ chết cùng ngay lập tức trước khi hạ màn.',
+                win: 'Giúp phe Dân làng loại bỏ toàn bộ Ma Sói.'
+            },
+            cupid: {
+                name: 'Thần Tình Yêu (Cupid)',
+                side: 'village',
+                icon: 'fa-heart-pulse',
+                color: 'text-pink-400',
+                bg: 'bg-pink-950/40 border-pink-800',
+                desc: 'Đêm đầu tiên, Cupid chọn 2 người làm cặp đôi yêu nhau. Nếu 1 người chết, người kia sẽ tự vẫn theo vì đau buồn. Nếu 2 người thuộc 2 phe (Sói và Dân), họ thắng khi tiêu diệt hết tất cả những người khác.',
+                win: 'Bảo vệ cặp đôi sống đến cuối cùng hoặc tiêu diệt toàn bộ người khác (nếu là cặp đôi độc lập).'
+            },
+            villager: {
+                name: 'Dân Làng',
+                side: 'village',
+                icon: 'fa-user',
+                color: 'text-gray-300',
+                bg: 'bg-gray-800 border-gray-700',
+                desc: 'Không có năng lực đặc biệt ban đêm. Ban ngày sử dụng suy luận, lập luận và biểu quyết để tìm ra và treo cổ những kẻ nghi ngờ là Ma Sói.',
+                win: 'Loại bỏ toàn bộ Ma Sói ra khỏi ngôi làng.'
+            }
+        };
+
+        // --- Application State ---
+        let currentMode = 'landing'; // 'landing', 'host', 'player-join', 'player-dash', 'host-game'
+        let roomCode = '';
+        let myPlayerName = '';
+        let gameState = {
+            roomCode: '',
+            started: false,
+            phase: 'lobby',
+            round: 1,
+            players: []
+        };
+
+        let roleConfig = {
+            werewolf: 10,
+            seer: 2,
+            guard: 2,
+            witch: 2,
+            hunter: 2,
+            cupid: 2,
+            villager: 40
+        };
+
+        let hostModFilter = 'all';
+        let firebaseListenerRef = null;
+
+        window.addEventListener('DOMContentLoaded', () => {
+            renderRolesGuideModal();
+            // Check URL parameters for auto room join e.g. ?room=WOLF142
+            const urlParams = new URLSearchParams(window.location.search);
+            const rParam = urlParams.get('room');
+            if (rParam) {
+                document.getElementById('join-room-code-input').value = rParam.toUpperCase();
+                selectMode('player');
+            }
+        });
+
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `pointer-events-auto px-4 py-3 rounded-xl shadow-2xl border text-sm font-medium flex items-center gap-3 transition transform translate-y-2 animate-fade-in ${
+                type === 'success' ? 'bg-emerald-900/90 border-emerald-700 text-emerald-200' :
+                type === 'error' ? 'bg-red-900/90 border-red-700 text-red-200' :
+                'bg-dark-800/90 border-dark-600 text-gray-200'
+            }`;
+            const icon = type === 'success' ? 'fa-circle-check text-emerald-400' : type === 'error' ? 'fa-circle-exclamation text-red-400' : 'fa-circle-info text-blue-400';
+            toast.innerHTML = `<i class="fa-solid ${icon} text-base"></i><span>${message}</span>`;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
+        function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+        function renderRolesGuideModal() {
+            const container = document.getElementById('roles-guide-list');
+            container.innerHTML = Object.keys(ROLE_DEFINITIONS).map(key => {
+                const r = ROLE_DEFINITIONS[key];
+                return `
+                    <div class="bg-dark-900 p-4 rounded-xl border border-dark-700 flex items-start gap-4">
+                        <div class="w-12 h-12 rounded-xl ${r.bg} flex items-center justify-center ${r.color} text-xl shrink-0">
+                            <i class="fa-solid ${r.icon}"></i>
+                        </div>
+                        <div class="space-y-1">
+                            <div class="flex items-center gap-2">
+                                <h4 class="font-bold text-white text-base">${r.name}</h4>
+                                <span class="text-[10px] px-2 py-0.5 rounded uppercase tracking-wider ${r.side === 'werewolf' ? 'bg-red-950 text-red-400 border border-red-800' : 'bg-purple-950 text-purple-400 border border-purple-800'}">Phe ${r.side === 'werewolf' ? 'Sói' : 'Dân'}</span>
+                            </div>
+                            <p class="text-xs text-gray-300 leading-relaxed"><strong class="text-blue-400">Kỹ năng:</strong> ${r.desc}</p>
+                            <p class="text-xs text-gray-400 leading-relaxed"><strong class="text-amber-400">Thắng khi:</strong> ${r.win}</p>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // --- Navigation & Mode Switching ---
+        function selectMode(mode) {
+            currentMode = mode;
+            document.getElementById('view-landing').classList.add('hidden');
+            document.getElementById('view-host-setup').classList.add('hidden');
+            document.getElementById('view-player-join').classList.add('hidden');
+            document.getElementById('view-player-dashboard').classList.add('hidden');
+            document.getElementById('view-host-game').classList.add('hidden');
+
+            if (mode === 'host') {
+                roomCode = 'WOLF' + Math.floor(100 + Math.random() * 900);
+                gameState = {
+                    roomCode: roomCode,
+                    started: false,
+                    phase: 'lobby',
+                    round: 1,
+                    players: []
+                };
+                saveRoomToFirebase();
+                listenToRoomFirebase(roomCode);
+                
+                document.getElementById('view-host-setup').classList.remove('hidden');
+                document.getElementById('host-room-code-display').innerText = roomCode;
+                document.getElementById('current-room-code-label').innerText = roomCode;
+                document.getElementById('room-badge-display').classList.remove('hidden');
+                renderHostSetupRoles();
+                renderHostSetupPlayers();
+                showToast(`Đã tạo phòng trên Cloud thành công! Mã: ${roomCode}`, 'success');
+            } else if (mode === 'player') {
+                document.getElementById('view-player-join').classList.remove('hidden');
+            }
+        }
+
+        function backToLanding() {
+            if (firebaseListenerRef && roomCode) {
+                db.ref('rooms/' + roomCode).off('value', firebaseListenerRef);
+            }
+            currentMode = 'landing';
+            roomCode = '';
+            document.getElementById('view-landing').classList.remove('hidden');
+            document.getElementById('view-host-setup').classList.add('hidden');
+            document.getElementById('view-player-join').classList.add('hidden');
+            document.getElementById('view-player-dashboard').classList.add('hidden');
+            document.getElementById('view-host-game').classList.add('hidden');
+            document.getElementById('room-badge-display').classList.add('hidden');
+        }
+
+        // --- Firebase Cloud Sync ---
+        function saveRoomToFirebase() {
+            if (!roomCode) return;
+            db.ref('rooms/' + roomCode).set(gameState);
+        }
+
+        function listenToRoomFirebase(code) {
+            if (firebaseListenerRef) {
+                db.ref('rooms/' + roomCode).off('value', firebaseListenerRef);
+            }
+            firebaseListenerRef = db.ref('rooms/' + code).on('value', (snapshot) => {
+                const data = snapshot.val();
+                if (data) {
+                    gameState = data;
+                    if (currentMode === 'player-dash') {
+                        updatePlayerViewFromState();
+                    } else if (currentMode === 'host' && !gameState.started) {
+                        renderHostSetupPlayers();
+                        updateHostRoleValidation();
+                    } else if (currentMode === 'host' && gameState.started) {
+                        document.getElementById('view-host-setup').classList.add('hidden');
+                        document.getElementById('view-host-game').classList.remove('hidden');
+                        currentMode = 'host-game';
+                        renderHostGameDashboard();
+                    } else if (currentMode === 'host-game') {
+                        renderHostGameDashboard();
+                    }
+                }
+            });
+        }
+
+        // --- Host Player Management ---
+        function hostAddPlayer() {
+            const input = document.getElementById('host-add-name');
+            const name = input.value.trim();
+            if (!name) {
+                showToast('Vui lòng nhập tên người chơi!', 'error');
+                return;
+            }
+            if (gameState.players.length >= 60) {
+                showToast('Đã đạt giới hạn tối đa 60 người chơi!', 'error');
+                return;
+            }
+            if (gameState.players.some(p => p.name.toLowerCase() === name.toLowerCase())) {
+                showToast('Tên người chơi này đã tồn tại trong phòng!', 'error');
+                return;
+            }
+
+            gameState.players.push({
+                id: 'p_' + Date.now() + '_' + Math.floor(Math.random()*1000),
+                name: name,
+                role: 'villager',
+                isAlive: true
+            });
+            input.value = '';
+            autoBalanceHostRoles();
+            saveRoomToFirebase();
+            renderHostSetupPlayers();
+        }
+
+        function removeHostPlayer(id) {
+            gameState.players = gameState.players.filter(p => p.id !== id);
+            autoBalanceHostRoles();
+            saveRoomToFirebase();
+            renderHostSetupPlayers();
+        }
+
+        function clearHostPlayers() {
+            if (confirm('Bạn có muốn xóa toàn bộ danh sách người chơi trong phòng?')) {
+                gameState.players = [];
+                autoBalanceHostRoles();
+                saveRoomToFirebase();
+                renderHostSetupPlayers();
+            }
+        }
+
+        function generateSamplePlayers(count) {
+            gameState.players = [];
+            const firstNames = ['An', 'Bình', 'Cường', 'Dũng', 'Đức', 'Hà', 'Hải', 'Hùng', 'Hương', 'Khánh', 'Linh', 'Long', 'Minh', 'Nam', 'Nga', 'Phong', 'Phương', 'Quân', 'Quỳnh', 'Sơn', 'Thảo', 'Thắng', 'Thu', 'Trang', 'Trung', 'Tú', 'Uyên', 'Vân', 'Việt', 'Yến'];
+            const lastNames = ['Nguyễn', 'Trần', 'Lê', 'Phạm', 'Hoàng', 'Huỳnh', 'Phan', 'Vũ', 'Võ', 'Đặng', 'Bùi', 'Đỗ', 'Hồ'];
+            
+            for (let i = 1; i <= count; i++) {
+                const fn = firstNames[Math.floor(Math.random() * firstNames.length)];
+                const ln = lastNames[Math.floor(Math.random() * lastNames.length)];
+                gameState.players.push({
+                    id: 'p_bot_' + i,
+                    name: `${ln} ${fn} ${i}`,
+                    role: 'villager',
+                    isAlive: true
+                });
+            }
+            autoBalanceHostRoles();
+            saveRoomToFirebase();
+            renderHostSetupPlayers();
+            showToast(`Đã tạo thành công ${count} người chơi mẫu!`, 'success');
+        }
+
+        function renderHostSetupPlayers() {
+            const container = document.getElementById('host-player-grid');
+            const badge = document.getElementById('host-player-count');
+            badge.innerText = `${gameState.players.length} / 60`;
+
+            if (gameState.players.length === 0) {
+                container.innerHTML = `<div class="col-span-full py-12 text-center text-gray-500 italic text-xs">Chưa có người chơi nào trong phòng. Hãy đợi người chơi nhập mã hoặc tạo bot!</div>`;
+                return;
+            }
+
+            container.innerHTML = gameState.players.map((p, idx) => `
+                <div class="bg-dark-900 border border-dark-700 rounded-xl px-3 py-2 flex items-center justify-between gap-2">
+                    <div class="flex items-center gap-2 overflow-hidden">
+                        <span class="text-[10px] text-gray-500 font-mono">#${idx+1}</span>
+                        <span class="text-xs text-gray-200 font-medium truncate" title="${p.name}">${p.name}</span>
+                    </div>
+                    <button onclick="removeHostPlayer('${p.id}')" class="text-gray-500 hover:text-red-400 p-1" title="Xóa">
+                        <i class="fa-solid fa-xmark text-xs"></i>
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        // --- Host Role Configuration & Fixed AutoBalance ---
+        function renderHostSetupRoles() {
+            const container = document.getElementById('host-roles-config');
+            container.innerHTML = Object.keys(ROLE_DEFINITIONS).map(key => {
+                const def = ROLE_DEFINITIONS[key];
+                const count = roleConfig[key] || 0;
+                return `
+                    <div class="bg-dark-900 border border-dark-700 rounded-xl p-2.5 flex items-center justify-between gap-3">
+                        <div class="flex items-center gap-2.5">
+                            <div class="w-8 h-8 rounded-lg ${def.bg} flex items-center justify-center ${def.color} text-xs">
+                                <i class="fa-solid ${def.icon}"></i>
+                            </div>
+                            <div>
+                                <h4 class="text-xs font-bold text-white">${def.name}</h4>
+                                <p class="text-[10px] text-gray-400 line-clamp-1">${def.desc}</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                            <button onclick="adjustHostRole('${key}', -1)" class="w-6 h-6 bg-dark-700 hover:bg-dark-600 rounded-md text-gray-300 text-xs font-bold">-</button>
+                            <span id="h-role-${key}" class="w-6 text-center text-xs font-bold text-white">${count}</span>
+                            <button onclick="adjustHostRole('${key}', 1)" class="w-6 h-6 bg-dark-700 hover:bg-dark-600 rounded-md text-gray-300 text-xs font-bold">+</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            updateHostRoleValidation();
+        }
+
+        function adjustHostRole(key, delta) {
+            let val = (roleConfig[key] || 0) + delta;
+            if (val < 0) val = 0;
+            
+            const currentTotalWithoutKey = getTotalHostRoles() - (roleConfig[key] || 0);
+            const maxPlayers = Math.max(1, gameState.players.length);
+            if (delta > 0 && (currentTotalWithoutKey + val) > maxPlayers) {
+                showToast('Tổng số vai trò không được vượt quá số lượng người chơi!', 'error');
+                return;
+            }
 
             roleConfig[key] = val;
             document.getElementById(`h-role-${key}`).innerText = val;
